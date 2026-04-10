@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程表作成ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            user-select: none;
+        }
+        /* メイングリッド構成 */
+        .gantt-grid {
+            display: grid;
+            grid-template-columns: 320px 1fr 180px; 
+            border: 1px solid #cbd5e1;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: grid-template-columns 0.3s ease;
+        }
+        .timeline-container {
+            overflow-x: auto;
+            position: relative;
+            border-right: 1px solid #cbd5e1;
+        }
+        .timeline-header {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #cbd5e1;
+            background: #f1f5f9;
+        }
+        .month-row {
+            display: flex;
+            height: 30px;
+            border-bottom: 1px solid #cbd5e1;
+            background: #f8fafc;
+        }
+        .month-cell {
+            flex-shrink: 0;
+            border-right: 1px solid #cbd5e1;
+            padding-left: 8px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #64748b;
+            line-height: 30px;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .day-row {
+            display: flex;
+            height: 30px;
+        }
+        .day-cell {
+            text-align: center;
+            font-size: 0.7rem;
+            line-height: 30px;
+            border-right: 1px solid #cbd5e1;
+            flex-shrink: 0;
+            color: #64748b;
+            transition: background-color 0.2s;
+        }
+        .edit-mode .day-cell:hover {
+            background-color: #f1f5f9;
+            cursor: pointer;
+        }
+        
+        .task-row {
+            display: flex;
+            height: 48px;
+            border-bottom: 1px solid #e2e8f0;
+            position: relative;
+            align-items: center;
+        }
+        .sidebar-row, #sidebar-header {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr; 
+            height: 48px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        #sidebar-header {
+            height: 61px;
+        }
+        .remarks-row {
+            height: 48px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 0.825rem;
+            color: #475569;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background-color: #fff;
+        }
+        .sidebar-cell {
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 0.875rem;
+            border-right: 1px solid #e2e8f0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .sidebar-cell:last-child {
+            border-right: none;
+        }
+        .row-drag-over {
+            background-color: #e0e7ff !important;
+            box-shadow: inset 0 0 0 2px #4f46e5;
+            transition: background-color 0.2s;
+        }
+
+        .gantt-bar {
+            position: absolute;
+            height: 28px;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 2;
+            cursor: pointer;
+            overflow: visible;
+        }
+        .bar-label {
+            position: absolute;
+            left: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            white-space: nowrap;
+            font-size: 0.65rem;
+            color: #111827; /* ほぼ黒 */
+            font-weight: 700;
+            text-shadow: 
+                -1px -1px 0 rgba(255,255,255,0.8),  
+                 1px -1px 0 rgba(255,255,255,0.8),
+                -1px  1px 0 rgba(255,255,255,0.8),
+                 1px  1px 0 rgba(255,255,255,0.8);
+            pointer-events: none;
+            z-index: 10;
+            line-height: 1.2;
+        }
+        .bar-label.dark-text {
+            color: #1e293b;
+            text-shadow: none;
+        }
+        .edit-mode .bar-label {
+            pointer-events: auto;
+            cursor: grab;
+        }
+        .edit-mode .bar-label:active {
+            cursor: grabbing;
+        }
+        .bar-label.label-dragging {
+            opacity: 0.8;
+            background: rgba(255,255,255,0.15);
+            border-radius: 4px;
+            padding: 1px 3px;
+        }
+        .edit-mode .gantt-bar {
+            cursor: move;
+        }
+        .resize-handle {
+            position: absolute;
+            top: 0;
+            width: 8px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 20;
+            display: none;
+        }
+        .resize-left { left: 0; }
+        .resize-right { right: 0; }
+        .edit-mode .resize-handle {
+            display: block;
+        }
+        .progress-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px 0 0 6px;
+            pointer-events: none;
+        }
+        .weekend {
+            background-color: #fee2e2;
+        }
+        .today-line {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ef4444;
+            z-index: 5;
+            pointer-events: none;
+        }
+        #grid-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .grid-bg-cell {
+            height: 100%;
+            border-right: 1px solid #e2e8f0;
+            flex-shrink: 0;
+        }
+        .toggle-group {
+            background-color: #f1f5f9;
+            padding: 4px;
+            border-radius: 12px;
+            display: flex;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.04);
+        }
+        .toggle-btn {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-align: center;
+            border-radius: 8px;
+            z-index: 10;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            min-width: 60px;
+        }
+        .toggle-btn.active {
+            color: #4f46e5; 
+            background-color: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+            transform: scale(1.02);
+        }
+        .toggle-btn.inactive {
+            color: #64748b;
+        }
+        .toggle-btn.inactive:hover {
+            color: #1e293b;
+            background-color: #e2e8f0;
+        }
+        .btn-modern {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+        }
+        .btn-modern:hover {
+            transform: translateY(-2px);
+        }
+        .btn-modern:active {
+            transform: translateY(0);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.4), 0 2px 6px -1px rgba(79, 70, 229, 0.2);
+            border: none;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 12px 18px -4px rgba(79, 70, 229, 0.5), 0 4px 8px -2px rgba(79, 70, 229, 0.3);
+        }
+        .btn-secondary {
+            background: #ffffff;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .btn-secondary:hover {
+            border-color: #94a3b8;
+            color: #1e293b;
+            background: #f8fafc;
+            box-shadow: 0 6px 12px -2px rgba(0,0,0,0.05);
+        }
+        .print-bar {
+            background: linear-gradient(to right, #1e293b, #334155);
+            box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
+            border: 1px solid #475569;
+        }
+        .print-input {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: white;
+            backdrop-filter: blur(4px);
+            transition: all 0.3s;
+        }
+        .print-input:focus {
+            background: rgba(255,255,255,0.12);
+            border-color: #818cf8;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+        }
+        .print-input option {
+            background-color: #1e293b;
+            color: white;
+        }
+        .btn-print {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            box-shadow: 0 6px 12px -2px rgba(16, 185, 129, 0.3);
+        }
+        .btn-print:hover {
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            box-shadow: 0 12px 18px -4px rgba(16, 185, 129, 0.4);
+        }
+        @media print {
+            @page {
+                size: A3 landscape;
+                margin: 5mm;
+            }
+            body { background-color: white; padding: 0; margin: 0; }
+            .no-print { display: none !important; }
+            .max-w-none-print { max-width: none !important; width: 100% !important; }
+            /* 印刷時は幅を内容に合わせ、不要な空白を作らない */
+            .gantt-grid { border: 1px solid #64748b; border-radius: 0; width: max-content !important; overflow: visible !important; }
+            .timeline-container { overflow: visible !important; }
+            .gantt-bar { box-shadow: none; border: 1px solid rgba(0,0,0,0.2); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .progress-overlay { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .weekend { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .narrow-font .day-cell { font-size: 0.55rem; }
+            .narrow-font .gantt-bar { font-size: 0.55rem; padding: 0 2px; }
+            .narrow-font .sidebar-cell, .narrow-font .remarks-row { font-size: 0.75rem; }
+            .remarks-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        }
+        .prose h2 { font-size: 1.35rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 0.75rem; color: #1e293b; border-left: 4px solid #4f46e5; padding-left: 0.75rem; }
+        .prose h3 { font-size: 1.1rem; font-weight: bold; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #334155; }
+        .prose p { margin-bottom: 0.75rem; line-height: 1.6; color: #475569; font-size: 0.95rem; }
+        .prose ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .prose li { margin-bottom: 0.4rem; color: #475569; font-size: 0.9rem; }
+        .prose strong { color: #1e293b; font-weight: 600; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8 edit-mode" id="app-body">
+
+    <div class="max-w-[1600px] mx-auto max-w-none-print">
+        <!-- Header -->
+        <div class="flex flex-col 2xl:flex-row justify-between items-start 2xl:items-center mb-6 gap-6 no-print">
+            <div class="shrink-0 w-full 2xl:w-auto border-b 2xl:border-none pb-4 2xl:pb-0 border-slate-200">
+                <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight whitespace-nowrap">工程表作成ツール</h1>
+                <p class="text-slate-500 text-sm mt-2 whitespace-nowrap">
+                    詳細仕様(ver 2.5)反映済み。
+                    <span id="save-status" class="ml-2 px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold transition-all">保存済み</span>
+                </p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-4 justify-start 2xl:justify-end">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">表示切替</span>
+                    <div class="toggle-group shadow-inner">
+                        <div id="zoom-xlarge" onclick="changeZoom(100)" class="toggle-btn inactive">極大</div>
+                        <div id="zoom-large" onclick="changeZoom(60)" class="toggle-btn inactive">拡大</div>
+                        <div id="zoom-normal" onclick="changeZoom(40)" class="toggle-btn active">標準</div>
+                        <div id="zoom-small" onclick="changeZoom(20)" class="toggle-btn inactive">縮小</div>
+                        <div id="zoom-all" onclick="changeZoom(12)" class="toggle-btn inactive">全体</div>
+                    </div>
+                </div>
+
+                <div class="toggle-group shadow-inner">
+                    <div id="btn-edit-mode" onclick="setMode(true)" class="toggle-btn active">編集</div>
+                    <div id="btn-preview-mode" onclick="setMode(false)" class="toggle-btn inactive">表示</div>
+                </div>
+
+                <div class="toggle-group shadow-inner">
+                    <div id="btn-progress-show" onclick="setProgressVisibility(true)" class="toggle-btn active">進捗有</div>
+                    <div id="btn-progress-hide" onclick="setProgressVisibility(false)" class="toggle-btn inactive">進捗無</div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="exportToCSV()" class="btn-modern btn-secondary h-10 px-4 rounded-xl text-[0.85rem]" title="CSVでダウンロード">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        CSV保存
+                    </button>
+                    <button onclick="document.getElementById('csvFileInput').click()" class="btn-modern btn-secondary h-10 px-4 rounded-xl text-[0.85rem]" title="CSVから読み込み">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        CSVを開く
+                    </button>
+                    <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="importFromCSV(event)">
+                </div>
+
+                <button onclick="openSpecs()" class="btn-modern btn-secondary h-10 px-5 rounded-xl text-[0.85rem]">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                    仕様書
+                </button>
+
+                <button id="new-task-btn" onclick="openModal()" class="btn-modern btn-primary h-10 px-6 rounded-xl text-[0.9rem] tracking-wide">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    項目追加
+                </button>
+            </div>
+        </div>
+
+        <!-- Print Settings Bar -->
+        <div class="print-bar rounded-2xl p-4 md:px-6 mb-8 flex flex-wrap items-center gap-6 no-print text-white">
+            <div class="flex items-center gap-3">
+                <span class="text-[0.85rem] font-bold tracking-wider text-slate-300">印刷開始日:</span>
+                <input type="date" id="print-start-date" class="print-input rounded-xl px-4 py-2 text-sm outline-none cursor-pointer">
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="text-[0.85rem] font-bold tracking-wider text-slate-300">印刷期間:</span>
+                <select id="print-duration" class="print-input rounded-xl px-4 py-2 text-sm outline-none cursor-pointer">
+                    <option value="30">30日間（A3横1枚）</option>
+                    <option value="60">60日間（A3横1枚）</option>
+                    <option value="90">90日間（A3横1枚）</option>
+                </select>
+            </div>
+            <div class="hidden md:block w-px h-8 bg-slate-600/50"></div>
+            <button onclick="executePrint()" class="btn-modern btn-print ml-auto px-8 py-2 rounded-xl text-[0.9rem] tracking-wider font-bold">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                印刷実行
+            </button>
+        </div>
+
+        <!-- Main Content -->
+        <div class="bg-white rounded-xl shadow-xl border border-slate-300 overflow-hidden" id="gantt-wrapper">
+            <div class="gantt-grid" id="main-grid">
+                <div class="border-r border-slate-300" id="sidebar-container">
+                    <div class="bg-slate-50 border-b border-slate-300 font-bold text-xs text-slate-500 uppercase tracking-wider" id="sidebar-header">
+                        <div class="flex items-center px-4 border-r border-slate-300">項目</div>
+                        <div class="flex items-center px-4">担当</div>
+                    </div>
+                    <div id="task-sidebar" class="bg-white"></div>
+                </div>
+                <div class="timeline-container" id="timeline-container">
+                    <div class="timeline-header" id="timeline-header">
+                        <div id="month-row" class="month-row"></div>
+                        <div id="day-row" class="day-row"></div>
+                    </div>
+                    <div id="gantt-rows" class="relative min-h-[100px]">
+                        <div id="grid-background"></div>
+                        <div id="today-marker" class="today-line hidden no-print"></div>
+                    </div>
+                </div>
+                <div id="remarks-container">
+                    <div class="h-[61px] bg-slate-50 border-b border-slate-300 flex items-center px-4 font-bold text-xs text-slate-500 uppercase tracking-wider" id="remarks-header">
+                        備考
+                    </div>
+                    <div id="task-remarks" class="bg-white"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Specifications Modal (Updated to Detailed ver 2.5) -->
+    <div id="specsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-[60] p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-indigo-600 text-white">
+                <h3 class="text-xl font-bold">工程表作成ツール 詳細仕様書 (ver 2.5)</h3>
+                <button onclick="closeSpecs()" class="p-2 hover:bg-indigo-500 rounded-full transition-colors text-white font-bold text-xl">
+                    &times;
+                </button>
+            </div>
+            <div class="p-8 overflow-y-auto prose max-w-none bg-white">
+                <h2>1. アプリケーション概要</h2>
+                <p>本ツールは、1枚のA3用紙（横）に最適化された工程表を作成するための高機能ガントチャートアプリです。複雑な詳細項目の管理、CSVによるデータ連携、ブラウザでの自動保存に対応しています。</p>
+
+                <h2>2. 主要機能詳細</h2>
+                
+                <h3>2.1 マルチバー（詳細項目）管理システム</h3>
+                <p>1つの大項目（行）の中に、<strong>最大5つまで</strong>の詳細工程（バー）を配置できます。</p>
+                <ul>
+                    <li><strong>個別設定</strong>: 詳細名称、開始・終了日、進捗率、カラーラベル。</li>
+                    <li><strong>カラーバリエーション</strong>: 全8色から、工程の種類に合わせて色を選択可能です。</li>
+                    <li><strong>ラベル位置調整</strong>: 詳細名称（ラベル）はバーからはみ出して表示されます。編集モード時に限り、**ラベル自体をマウスでドラッグして自由に上下左右へ移動**させることができます。他のラベルと重なる場合などの微調整にご活用ください。（ラベルをダブルクリックで元の位置に戻ります）</li>
+                </ul>
+
+                <h3>2.2 高度なタイムライン操作</h3>
+                <ul>
+                    <li><strong>スライド移動</strong>: バーの**中央部分をドラッグ**すると、期間を保ったままスケジュールを前後へスライドできます。</li>
+                    <li><strong>期間の伸縮（リサイズ）</strong>: バーの**左右端をドラッグ**することで、開始日または終了日のみを変更できます。</li>
+                    <li><strong>休日個別設定</strong>: タイムライン上部の**日付（数字）をクリック**することで、個別に休日（赤色背景）を設定・解除できます。</li>
+                </ul>
+
+                <h3>2.3 データ管理とファイル連携</h3>
+                <ul>
+                    <li><strong>ローカル自動保存</strong>: 編集内容はブラウザのLocalStorageに即座に保存され、次回起動時に自動復元されます。</li>
+                    <li><strong>CSV入出力</strong>: 「CSV保存」でバックアップを、「CSVを開く」で過去データの読み込みが可能です。Excel等での二次利用にも対応しています。</li>
+                </ul>
+
+                <h3>2.4 表示・印刷最適化</h3>
+                <ul>
+                    <li><strong>5段階ズーム</strong>: 「極大」から「全体」まで切替可能。短い工程でも極大ズームを使えば文字が見やすくなります。</li>
+                    <li><strong>A3横印刷最適化</strong>: 指定した期間（30/60/90日）に応じ、1枚に収まるよう自動的に文字サイズやカラム幅が調整されます。</li>
+                </ul>
+
+                <h2>3. 操作ガイド</h2>
+                <h3>項目の追加・編集</h3>
+                <p>ヘッダーの「項目追加」ボタン、または既存の項目名・バーをクリックして編集モーダルを開きます。「追加」ボタンで詳細工程を増やせます。</p>
+                
+                <h3>項目の並び替え（ドラッグ＆ドロップ）</h3>
+                <p>編集モード時、左側の項目名の左端にあるグリップアイコン（⠿）を掴んで上下にドラッグすることで、項目の表示順序を自由に入れ替えることができます。</p>
+
+                <h3>データのバックアップ</h3>
+                <p>「CSV保存」をクリックするとファイルとして保存されます。別のブラウザやPCで利用する際は「CSVを開く」からそのファイルを読み込んでください。</p>
+            </div>
+            <div class="p-4 border-t flex justify-end bg-slate-50">
+                <button onclick="closeSpecs()" class="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold shadow-md">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="taskModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col transform transition-all">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                <h3 class="text-xl font-bold text-slate-800" id="modalTitle">項目の編集</h3>
+                <button onclick="closeModal()" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors text-2xl">&times;</button>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scrollbar space-y-6 flex-1">
+                <input type="hidden" id="taskId">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-1.5">大項目名</label>
+                        <input type="text" id="taskName" class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="例: システム開発">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-1.5">担当者</label>
+                        <input type="text" id="assignee" class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="例: 山田 太郎">
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-sm font-bold text-slate-800">詳細工程 (最大5個)</label>
+                        <button onclick="addSubItem()" id="add-sub-btn" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700">追加</button>
+                    </div>
+                    <div id="sub-items-container" class="space-y-4"></div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-1.5">備考</label>
+                    <textarea id="remarks" rows="2" class="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm" placeholder="補足情報"></textarea>
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-slate-50 border-t flex justify-between gap-3">
+                <button id="deleteBtn" onclick="deleteTask()" class="text-red-500 hover:text-red-700 font-semibold text-sm transition-colors hidden">項目を削除</button>
+                <div class="flex gap-3 ml-auto">
+                    <button onclick="closeModal()" class="px-5 py-2 text-slate-600 hover:text-slate-800 font-semibold text-sm transition-colors">キャンセル</button>
+                    <button onclick="saveTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2 rounded-xl font-bold shadow-md">保存する</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 状態管理・グローバル変数 ---
+        let tasks = [];
+        let customHolidays = [];
+        let showProgress = true;
+        let isEditMode = true;
+        let dayWidth = 40;
+        let startDateRange, endDateRange;
+        
+        let dragInProgress = false;
+        let dragTaskRef = null;
+        let dragSubIdxRef = null;
+        let dragTypeRef = null;
+        let dragStartX = 0;
+        let dragDayOffsetStart = 0;
+        let dragDayOffsetEnd = 0;
+        
+        const STORAGE_KEY = 'gantt_chart_v2_local';
+        const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
+
+        // --- ローカルストレージ連携 ---
+        function saveToLocal() {
+            const data = { tasks, customHolidays, showProgress };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            const el = document.getElementById('save-status');
+            if (el) el.innerText = '保存済み';
+        }
+
+        function loadFromLocal() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const data = JSON.parse(stored);
+                tasks = data.tasks || [];
+                customHolidays = data.customHolidays || [];
+                showProgress = (data.showProgress !== undefined) ? data.showProgress : true;
+            } else {
+                tasks = [{ 
+                    id: '1', name: 'プロジェクト開始', assignee: '管理者', remarks: 'サンプルの工程表です。',
+                    subItems: [{ name: '準備工程', start: getRelativeDate(0), end: getRelativeDate(5), progress: 30, color: '#4f46e5' }]
+                }];
+            }
+        }
+
+        // --- CSV入出力 ---
+        function exportToCSV() {
+            let csv = "大項目ID,大項目名,担当者,備考,詳細名,開始日,終了日,進捗,カラー,OffsetX,OffsetY\n";
+            tasks.forEach(t => {
+                t.subItems.forEach(s => {
+                    const ox = s.labelOffsetX || 0;
+                    const oy = s.labelOffsetY || 0;
+                    csv += `"${t.id}","${t.name}","${t.assignee}","${t.remarks}","${s.name}","${s.start}","${s.end}","${s.progress}","${s.color}","${ox}","${oy}"\n`;
+                });
+            });
+            const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "工程表データ.csv";
+            link.click();
+        }
+
+        function importFromCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const lines = text.split("\n").slice(1);
+                const map = new Map();
+                lines.forEach(line => {
+                    if (!line.trim()) return;
+                    const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || [];
+                    const p = parts.map(x => x.replace(/^"|"$/g, ''));
+                    if (p.length < 9) return;
+                    if (!map.has(p[0])) map.set(p[0], { id: p[0], name: p[1], assignee: p[2], remarks: p[3], subItems: [] });
+                    const ox = p.length > 9 ? parseInt(p[9]) || 0 : 0;
+                    const oy = p.length > 10 ? parseInt(p[10]) || 0 : 0;
+                    map.get(p[0]).subItems.push({ name: p[4], start: p[5], end: p[6], progress: parseInt(p[7]), color: p[8], labelOffsetX: ox, labelOffsetY: oy });
+                });
+                if (map.size > 0) { tasks = Array.from(map.values()); saveToLocal(); init(); showMsg("CSVを読み込みました"); }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- 描画ロジック ---
+        function getRelativeDate(days) {
+            const d = new Date(); d.setDate(d.getDate() + days);
+            return d.toISOString().split('T')[0];
+        }
+
+        function calculateDateRange() {
+            if (tasks.length === 0) {
+                startDateRange = new Date(); endDateRange = new Date(); endDateRange.setDate(endDateRange.getDate() + 30);
+                return;
+            }
+            let allDates = [];
+            tasks.forEach(t => t.subItems.forEach(s => { 
+                allDates.push(new Date(s.start)); 
+                allDates.push(new Date(s.end)); 
+            }));
+            const min = new Date(Math.min(...allDates)); const max = new Date(Math.max(...allDates));
+            startDateRange = new Date(min.getFullYear(), min.getMonth(), min.getDate() - 7);
+            endDateRange = new Date(max.getFullYear(), max.getMonth(), max.getDate() + 14);
+        }
+
+        function renderTimeline() {
+            const mRow = document.getElementById('month-row'), dRow = document.getElementById('day-row'), grid = document.getElementById('grid-background');
+            mRow.innerHTML = ''; dRow.innerHTML = ''; grid.innerHTML = '';
+            const diff = Math.ceil(Math.abs(endDateRange - startDateRange) / (1000 * 60 * 60 * 24));
+            let curM = -1, curY = -1, count = 0, monthEl = null;
+
+            for (let i = 0; i <= diff; i++) {
+                const date = new Date(startDateRange); date.setDate(date.getDate() + i);
+                const y = date.getFullYear(), m = date.getMonth(), dow = date.getDay(), dStr = date.toISOString().split('T')[0];
+                if (m !== curM || y !== curY) {
+                    if (monthEl) monthEl.style.width = `${count * dayWidth}px`;
+                    monthEl = document.createElement('div'); monthEl.className = 'month-cell'; monthEl.innerText = `${y}年 ${m + 1}月`;
+                    mRow.appendChild(monthEl); curM = m; curY = y; count = 0;
+                }
+                count++;
+                const cell = document.createElement('div'); cell.className = 'day-cell'; cell.style.width = `${dayWidth}px`;
+                const isH = (dow === 0 || dow === 6 || customHolidays.includes(dStr));
+                if (isH) cell.classList.add('weekend');
+                if (isEditMode) cell.onclick = () => toggleHoliday(dStr);
+                
+                cell.innerText = (dayWidth > 15 || dow === 1) ? date.getDate() : '';
+                if (dow === 1) { cell.style.fontWeight = "bold"; cell.style.color = "#000000"; }
+                
+                dRow.appendChild(cell);
+                const bg = document.createElement('div'); bg.className = 'grid-bg-cell'; bg.style.width = `${dayWidth}px`;
+                if (isH) bg.classList.add('weekend');
+                grid.appendChild(bg);
+            }
+            if (monthEl) monthEl.style.width = `${count * dayWidth}px`;
+        }
+
+        function renderTasks() {
+            const side = document.getElementById('task-sidebar'), rows = document.getElementById('gantt-rows'), rem = document.getElementById('task-remarks');
+            rows.querySelectorAll('.task-row').forEach(r => r.remove());
+            side.innerHTML = ''; rem.innerHTML = '';
+            tasks.forEach((task, index) => {
+                const sR = document.createElement('div'); sR.className = 'sidebar-row';
+                let gripHtml = '';
+                if (isEditMode) {
+                    sR.onclick = (e) => {
+                        if (!sR.classList.contains('dragging')) openModal(task);
+                    };
+                    sR.draggable = true;
+                    gripHtml = `<div class="cursor-move text-slate-400 hover:text-indigo-500 mr-2 flex-shrink-0 text-lg leading-none select-none" title="ドラッグして並び替え">⠿</div>`;
+                    
+                    sR.ondragstart = (e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', index);
+                        sR.style.opacity = '0.5';
+                        sR.classList.add('dragging');
+                    };
+                    sR.ondragend = (e) => {
+                        sR.style.opacity = '1';
+                        setTimeout(() => sR.classList.remove('dragging'), 50);
+                    };
+                    sR.ondragover = (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        sR.classList.add('row-drag-over');
+                    };
+                    sR.ondragleave = (e) => {
+                        sR.classList.remove('row-drag-over');
+                    };
+                    sR.ondrop = (e) => {
+                        e.preventDefault();
+                        sR.classList.remove('row-drag-over');
+                        const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                        if (isNaN(fromIdx)) return;
+                        const toIdx = index;
+                        if (fromIdx !== toIdx) {
+                            const [movedTask] = tasks.splice(fromIdx, 1);
+                            tasks.splice(toIdx, 0, movedTask);
+                            saveToLocal();
+                            renderTasks();
+                        }
+                    };
+                }
+                
+                sR.innerHTML = `<div class="sidebar-cell font-medium text-slate-700">${gripHtml}<span class="truncate block overflow-hidden">${task.name}</span></div><div class="sidebar-cell text-slate-500 text-center justify-center">${task.assignee || '-'}</div>`;
+                side.appendChild(sR);
+                
+                const row = document.createElement('div'); row.className = 'task-row';
+                row.style.overflow = 'visible';
+                task.subItems.forEach((sub, idx) => {
+                    const s = new Date(sub.start), e = new Date(sub.end);
+                    if (e < startDateRange || s > endDateRange) return;
+                    const dS = s < startDateRange ? new Date(startDateRange) : s, dE = e > endDateRange ? new Date(endDateRange) : e;
+                    const off = Math.round((dS.setHours(0,0,0,0) - startDateRange.setHours(0,0,0,0)) / (1000 * 60 * 60 * 24));
+                    const dur = Math.round((dE.setHours(0,0,0,0) - dS.setHours(0,0,0,0)) / (1000 * 60 * 60 * 24)) + 1;
+                    const barWidth = dur * dayWidth;
+                    
+                    const bar = document.createElement('div'); 
+                    bar.className = 'gantt-bar'; 
+                    bar.id = `bar-${task.id}-${idx}`;
+                    bar.style.left = `${off * dayWidth}px`; 
+                    bar.style.width = `${barWidth}px`; 
+                    bar.style.backgroundColor = sub.color;
+                    
+                    bar.title = `${sub.name} (${sub.progress}%) \n期間: ${sub.start} 〜 ${sub.end}`;
+                    
+                    // ラベル要素を独立して作成（バーからはみ出し可）
+                    const label = document.createElement('div');
+                    label.className = 'bar-label';
+                    const labelOffX = sub.labelOffsetX || 0;
+                    const labelOffY = sub.labelOffsetY || 0;
+                    label.style.left = `${4 + labelOffX}px`;
+                    label.style.top = `calc(50% + ${labelOffY}px)`;
+                    label.style.transform = `translateY(-50%)`;
+                    
+                    const progText = showProgress ? ` (${sub.progress}%)` : '';
+                    label.innerText = `${sub.name}${progText}`;
+                    
+                    if (isEditMode) {
+                        // ラベルのドラッグ移動
+                        label.addEventListener('mousedown', (eL) => {
+                            eL.stopPropagation();
+                            let startMouseX = eL.clientX, startMouseY = eL.clientY;
+                            let startOffX = sub.labelOffsetX || 0;
+                            let startOffY = sub.labelOffsetY || 0;
+                            let moved = false;
+                            label.classList.add('label-dragging');
+                            
+                            const onMove = (em) => {
+                                const dx = em.clientX - startMouseX;
+                                const dy = em.clientY - startMouseY;
+                                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
+                                if (!moved) return;
+                                sub.labelOffsetX = startOffX + dx;
+                                sub.labelOffsetY = startOffY + dy;
+                                label.style.left = `${4 + sub.labelOffsetX}px`;
+                                label.style.top = `calc(50% + ${sub.labelOffsetY}px)`;
+                            };
+                            const onUp = () => {
+                                label.classList.remove('label-dragging');
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                                if (moved) saveToLocal();
+                            };
+                            window.addEventListener('mousemove', onMove);
+                            window.addEventListener('mouseup', onUp);
+                        });
+                        label.addEventListener('dblclick', (eL) => {
+                            eL.stopPropagation();
+                            sub.labelOffsetX = 0;
+                            sub.labelOffsetY = 0;
+                            label.style.left = '4px';
+                            label.style.top = 'calc(50%)';
+                            saveToLocal();
+                        });
+                        label.title = 'ドラッグでラベル位置を調整 / ダブルクリックで位置リセット';
+                    }
+                    
+                    bar.appendChild(label);
+                    
+                    if (isEditMode) {
+                        bar.onmousedown = (e) => startDrag(e, task, idx, 'move');
+                        bar.onclick = (e) => { e.stopPropagation(); if (!dragInProgress) openModal(task); };
+                        const lH = document.createElement('div'); lH.className = 'resize-handle resize-left'; lH.onmousedown = (e) => startDrag(e, task, idx, 'start');
+                        const rH = document.createElement('div'); rH.className = 'resize-handle resize-right'; rH.onmousedown = (e) => startDrag(e, task, idx, 'end');
+                        bar.appendChild(lH); bar.appendChild(rH);
+                    }
+                    if (showProgress) {
+                        const p = document.createElement('div'); p.className = 'progress-overlay'; p.style.width = `${sub.progress}%`; bar.appendChild(p);
+                    }
+                    row.appendChild(bar);
+                });
+                rows.appendChild(row);
+                const rR = document.createElement('div'); rR.className = 'remarks-row'; rR.innerText = task.remarks || '';
+                if (isEditMode) rR.onclick = () => openModal(task);
+                rem.appendChild(rR);
+            });
+        }
+
+        // --- ドラッグ操作 ---
+        function startDrag(e, task, subIdx, type) {
+            e.stopPropagation(); if (!isEditMode) return;
+            dragInProgress = false; 
+            dragTaskRef = task; dragSubIdxRef = subIdx; dragTypeRef = type; dragStartX = e.clientX;
+            const s = task.subItems[subIdx];
+            dragDayOffsetStart = Math.round((new Date(s.start) - startDateRange) / (1000 * 60 * 60 * 24));
+            dragDayOffsetEnd = Math.round((new Date(s.end) - startDateRange) / (1000 * 60 * 60 * 24));
+            window.addEventListener('mousemove', handleDrag); window.addEventListener('mouseup', stopDrag);
+        }
+
+        function handleDrag(e) {
+            const dx = e.clientX - dragStartX; if (Math.abs(dx) > 3) dragInProgress = true;
+            if (!dragInProgress) return;
+            const dd = Math.round(dx / dayWidth); const sub = dragTaskRef.subItems[dragSubIdxRef];
+            if (dragTypeRef === 'move') {
+                const nS = new Date(startDateRange); nS.setDate(nS.getDate() + dragDayOffsetStart + dd);
+                const nE = new Date(startDateRange); nE.setDate(nE.getDate() + dragDayOffsetEnd + dd);
+                sub.start = nS.toISOString().split('T')[0]; sub.end = nE.toISOString().split('T')[0];
+            } else if (dragTypeRef === 'start') {
+                const nS = new Date(startDateRange); nS.setDate(nS.getDate() + dragDayOffsetStart + dd);
+                if (nS <= new Date(sub.end)) sub.start = nS.toISOString().split('T')[0];
+            } else if (dragTypeRef === 'end') {
+                const nE = new Date(startDateRange); nE.setDate(nE.getDate() + dragDayOffsetEnd + dd);
+                if (nE >= new Date(sub.start)) sub.end = nE.toISOString().split('T')[0];
+            }
+            renderTasks();
+        }
+
+        function stopDrag() {
+            window.removeEventListener('mousemove', handleDrag); window.removeEventListener('mouseup', stopDrag);
+            if (dragInProgress) { saveToLocal(); init(); }
+            setTimeout(() => dragInProgress = false, 50);
+        }
+
+        function toggleHoliday(dateStr) {
+            const idx = customHolidays.indexOf(dateStr);
+            if (idx > -1) customHolidays.splice(idx, 1); else customHolidays.push(dateStr);
+            saveToLocal(); renderTimeline(); renderTasks();
+        }
+
+        function changeZoom(w) {
+            dayWidth = w; const grid = document.getElementById('main-grid');
+            if (w <= 12) grid.style.gridTemplateColumns = "220px 1fr 140px";
+            else if (w <= 20) grid.style.gridTemplateColumns = "260px 1fr 160px";
+            else if (w >= 100) grid.style.gridTemplateColumns = "380px 1fr 220px"; 
+            else grid.style.gridTemplateColumns = "320px 1fr 180px";
+            document.body.classList.toggle('narrow-font', w <= 20);
+            updateZoomUI(); renderTimeline(); renderTasks(); updateTodayMarker();
+        }
+
+        function updateZoomUI() {
+            const map = { 100: 'zoom-xlarge', 60: 'zoom-large', 40: 'zoom-normal', 20: 'zoom-small', 12: 'zoom-all' };
+            Object.keys(map).forEach(k => { const b = document.getElementById(map[k]); if (b) b.classList.toggle('active', parseInt(k) === dayWidth); });
+        }
+
+        function setMode(e) { isEditMode = e; document.body.classList.toggle('edit-mode', e); init(); }
+        
+        function setProgressVisibility(v) { 
+            showProgress = v; 
+            saveToLocal(); 
+            init(); 
+        }
+
+        function executePrint() {
+            const startInput = document.getElementById('print-start-date').value;
+            const dur = parseInt(document.getElementById('print-duration').value);
+            if (!startInput) { showMsg("印刷開始日を指定してください"); return; }
+            
+            const mainGrid = document.getElementById('main-grid');
+            const oS = new Date(startDateRange), oE = new Date(endDateRange), oW = dayWidth;
+            
+            // 印刷期間の設定
+            startDateRange = new Date(startInput); 
+            endDateRange = new Date(startInput); 
+            endDateRange.setDate(endDateRange.getDate() + dur - 1);
+            
+            // 印刷時のサイドバー幅を決定 (備考はご要望により180pxに固定)
+            let sLeft = 320, sRight = 180;
+            if (dur >= 90) { sLeft = 220; sRight = 180; }
+            else if (dur >= 60) { sLeft = 260; sRight = 180; }
+            
+            // A3横の印刷有効幅（約1520px）に合わせてぴったり収まるようタイムライン幅を浮動小数点で計算
+            const targetTotalWidth = 1520;
+            const actualTimelineWidth = targetTotalWidth - sLeft - sRight;
+            const pDayWidth = actualTimelineWidth / dur;
+
+            // 描画更新
+            changeZoom(pDayWidth);
+            
+            // 【重要】カラム幅をpxで明示的に固定し、カレンダーと備考の間の空白を完全に除去
+            mainGrid.style.gridTemplateColumns = `${sLeft}px ${actualTimelineWidth}px ${sRight}px`;
+            
+            setTimeout(() => { 
+                window.print(); 
+                // 復元
+                startDateRange = oS; endDateRange = oE; 
+                changeZoom(oW); 
+            }, 500);
+        }
+
+        function updateTodayMarker() {
+            const m = document.getElementById('today-marker'), t = new Date(); t.setHours(0,0,0,0);
+            if (t >= startDateRange && t <= endDateRange) {
+                m.style.left = `${Math.round((t - startDateRange) / (1000 * 60 * 60 * 24)) * dayWidth}px`; m.classList.remove('hidden');
+            } else m.classList.add('hidden');
+        }
+
+        function init() {
+            if (!document.getElementById('print-start-date').value) {
+                document.getElementById('print-start-date').value = new Date().toISOString().split('T')[0];
+            }
+            calculateDateRange();
+            renderTimeline();
+            renderTasks();
+            updateTodayMarker();
+            updateUIForMode();
+            updateUIForProgressVisibility();
+            updateZoomUI();
+        }
+
+        // --- モーダル制御 ---
+        let currentModalSubItems = [];
+        function addSubItem(d = null) {
+            if (currentModalSubItems.length >= 5) return;
+            currentModalSubItems.push(d || { name: '詳細工程', start: getRelativeDate(0), end: getRelativeDate(3), progress: 0, color: COLORS[currentModalSubItems.length] });
+            renderSubItems();
+        }
+        function renderSubItems() {
+            const c = document.getElementById('sub-items-container'); c.innerHTML = '';
+            currentModalSubItems.forEach((s, i) => {
+                const d = document.createElement('div'); d.className = "bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 relative";
+                d.innerHTML = `
+                    <div class="grid grid-cols-[1fr,60px] gap-2">
+                        <input type="text" value="${s.name}" id="sub-name-${i}" class="px-2 py-1 text-sm border rounded outline-none">
+                        <input type="number" value="${s.progress}" id="sub-prog-${i}" class="px-1 py-1 text-sm border rounded outline-none text-right">%
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="date" value="${s.start}" id="sub-start-${i}" class="text-xs border rounded p-1 outline-none">
+                        <input type="date" value="${s.end}" id="sub-end-${i}" class="text-xs border rounded p-1 outline-none">
+                    </div>
+                    <div class="flex gap-1">${COLORS.map(c => `<button onclick="updateSubColor(${i}, '${c}')" class="w-4 h-4 rounded-full border ${s.color===c?'ring-1 ring-black':''}" style="background-color:${c}"></button>`).join('')}</div>
+                    <button onclick="removeSubItem(${i})" class="absolute top-1 right-2 text-slate-400">×</button>
+                `;
+                c.appendChild(d);
+            });
+        }
+        
+        function updateSubColor(idx, color) {
+            saveModalState();
+            currentModalSubItems[idx].color = color;
+            renderSubItems();
+        }
+        
+        function removeSubItem(idx) {
+            saveModalState();
+            currentModalSubItems.splice(idx, 1);
+            renderSubItems();
+        }
+
+        function saveModalState() {
+            currentModalSubItems.forEach((s, i) => {
+                const name = document.getElementById(`sub-name-${i}`);
+                const prog = document.getElementById(`sub-prog-${i}`);
+                const start = document.getElementById(`sub-start-${i}`);
+                const end = document.getElementById(`sub-end-${i}`);
+                if (name) s.name = name.value;
+                if (prog) s.progress = parseInt(prog.value) || 0;
+                if (start) s.start = start.value;
+                if (end) s.end = end.value;
+            });
+        }
+
+        function openModal(t = null) {
+            currentModalSubItems = [];
+            if (t) {
+                document.getElementById('taskId').value = t.id; document.getElementById('taskName').value = t.name;
+                document.getElementById('assignee').value = t.assignee; document.getElementById('remarks').value = t.remarks;
+                t.subItems.forEach(s => currentModalSubItems.push({...s}));
+                document.getElementById('deleteBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('taskId').value = ''; document.getElementById('taskName').value = '';
+                document.getElementById('assignee').value = ''; document.getElementById('remarks').value = '';
+                addSubItem(); document.getElementById('deleteBtn').classList.add('hidden');
+            }
+            renderSubItems(); document.getElementById('taskModal').classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('taskModal').classList.add('hidden'); }
+        function saveTask() {
+            saveModalState();
+            const id = document.getElementById('taskId').value || Date.now().toString();
+            const t = { 
+                id, 
+                name: document.getElementById('taskName').value || '無題', 
+                assignee: document.getElementById('assignee').value, 
+                remarks: document.getElementById('remarks').value, 
+                subItems: currentModalSubItems 
+            };
+            const idx = tasks.findIndex(x => x.id === id); if (idx > -1) tasks[idx] = t; else tasks.push(t);
+            saveToLocal(); closeModal(); init();
+        }
+        function deleteTask() { 
+            tasks = tasks.filter(x => x.id !== document.getElementById('taskId').value); 
+            saveToLocal(); closeModal(); init(); 
+        }
+
+        function openSpecs() { document.getElementById('specsModal').classList.remove('hidden'); }
+        function closeSpecs() { document.getElementById('specsModal').classList.add('hidden'); }
+
+        function updateUIForMode() {
+            const appBody = document.getElementById('app-body');
+            const editBtn = document.getElementById('btn-edit-mode');
+            const prevBtn = document.getElementById('btn-preview-mode');
+            const addBtn = document.getElementById('new-task-btn');
+            if (appBody) appBody.classList.toggle('edit-mode', isEditMode);
+            if (editBtn) editBtn.classList.toggle('active', isEditMode);
+            if (prevBtn) prevBtn.classList.toggle('active', !isEditMode);
+            if (addBtn) addBtn.classList.toggle('hidden', !isEditMode);
+        }
+        
+        function updateUIForProgressVisibility() {
+            const showBtn = document.getElementById('btn-progress-show');
+            const hideBtn = document.getElementById('btn-progress-hide');
+            if (showBtn) {
+                showBtn.classList.toggle('active', showProgress);
+                showBtn.classList.toggle('inactive', !showProgress);
+            }
+            if (hideBtn) {
+                hideBtn.classList.toggle('active', !showProgress);
+                hideBtn.classList.toggle('inactive', showProgress);
+            }
+        }
+
+        function showMsg(m) {
+            const b = document.createElement('div'); b.className = "fixed top-5 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg z-[100]";
+            b.innerText = m; document.body.appendChild(b); setTimeout(() => b.remove(), 2000);
+        }
+
+        window.onload = () => { loadFromLocal(); init(); };
+    </script>
+</body>
+</html>
